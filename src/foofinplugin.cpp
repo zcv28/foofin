@@ -45,6 +45,8 @@ void FoofinPlugin::initialise(const CorePluginContext& context)
     m_session = std::make_shared<JellyfinSession>(m_settings, context.dbPool);
     m_client  = new JellyfinClient(m_network, m_session, this);
 
+    scrubStreamCache(m_network.get(), this);
+
     m_audioLoader = context.audioLoader;
     if(m_audioLoader) {
         // fooyin's own HTTP stream implementation, shared by both ways of opening Jellyfin tracks:

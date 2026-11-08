@@ -14,7 +14,11 @@
 #include <core/network/networkaccessmanager.h>
 #include <core/network/remoteioservice.h>
 
+#include <QAbstractNetworkCache>
 #include <QIODevice>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QTimer>
 
 namespace Fooyin::Jellyfin {
 JellyfinSourceProvider::JellyfinSourceProvider(std::shared_ptr<RemoteIoService> fallback,
@@ -42,6 +46,25 @@ RemoteStreamSource JellyfinSourceProvider::createStreamSource(const QUrl& url) c
     qCDebug(FOOFIN) << "Opening Jellyfin stream" << itemId << "format" << streamFormatKey(options.format);
 
     return m_fallback->createStreamSource(streamUrl);
+}
+
+void scrubStreamCache(QNetworkAccessManager* network, QObject* context)
+{
+    QObject::connect(network, &QNetworkAccessManager::finished, context, [network](QNetworkReply* reply) {
+        const QUrl url = reply->url();
+        if(!isAuthenticatedStreamUrl(url)) {
+            return;
+        }
+
+        const auto remove = [network, url]() {
+            if(auto* cache = network->cache(); cache && cache->remove(url)) {
+                qCDebug(FOOFIN) << "Removed a Jellyfin stream from fooyin's network cache";
+            }
+        };
+        remove();
+        // The cache entry may only be committed after this signal; check again once it has been.
+        QTimer::singleShot(0, network, remove);
+    });
 }
 
 void installSourceProvider(AudioLoader& loader, const std::shared_ptr<RemoteIoService>& io,

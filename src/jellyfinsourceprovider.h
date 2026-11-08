@@ -10,6 +10,9 @@
 
 #include <memory>
 
+class QNetworkAccessManager;
+class QObject;
+
 namespace Fooyin {
 class AudioLoader;
 class NetworkAccessManager;
@@ -38,6 +41,15 @@ private:
     std::shared_ptr<RemoteIoService> m_fallback;
     std::shared_ptr<JellyfinSession> m_session;
 };
+
+/*!
+ * Keeps access tokens out of fooyin's disk cache.
+ *
+ * fooyin's HTTP stream device doesn't opt out of the network cache, so a fully downloaded stream
+ * would be stored on disk together with its URL, which contains the token. This removes the cache
+ * entry of every finished Jellyfin stream request on @p network.
+ */
+void scrubStreamCache(QNetworkAccessManager* network, QObject* context);
 
 //! Installs the provider into @p loader; @p io handles every URL that isn't a Jellyfin stream.
 void installSourceProvider(AudioLoader& loader, const std::shared_ptr<RemoteIoService>& io,

@@ -121,6 +121,13 @@ void JellyfinTrackTest::buildsStreamUrls()
     QCOMPARE(opusQuery.queryItemValue(u"audioBitRate"_s), u"128000"_s);
     QCOMPARE(opusQuery.queryItemValue(u"deviceId"_s), u"dev"_s);
 
+    const QString realId = u"a794b7c125d436df8dc2d870ad7b7e1e"_s;
+    QVERIFY(isAuthenticatedStreamUrl(resolveStreamUrl(server, realId, {}, u"tok"_s, u"dev"_s)));
+    QVERIFY(isAuthenticatedStreamUrl(
+        resolveStreamUrl(server, realId, {.format = StreamFormat::Mp3, .maxBitrateKbps = 192}, u"tok"_s, {})));
+    QVERIFY(!isAuthenticatedStreamUrl(resolveStreamUrl(server, u"a794b7c125d436df8dc2d870ad7b7e1e"_s, {}, {}, u"dev"_s)));
+    QVERIFY(!isAuthenticatedStreamUrl(imageUrl(server, u"a794b7c125d436df8dc2d870ad7b7e1e"_s, u"tag"_s, 300)));
+
     QCOMPARE(streamFormatFromKey(streamFormatKey(StreamFormat::Aac)), StreamFormat::Aac);
     QCOMPARE(streamFormatFromKey(u"bogus"_s), StreamFormat::Original);
 }

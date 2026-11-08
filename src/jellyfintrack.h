@@ -78,6 +78,9 @@ struct ArchiveTrackRef
 [[nodiscard]] QUrl resolveStreamUrl(const QUrl& server, const QString& itemId, const StreamOptions& options,
                                     const QString& token, const QString& deviceId);
 
+//! True for a Jellyfin audio stream URL that carries an access token (see resolveStreamUrl()).
+[[nodiscard]] bool isAuthenticatedStreamUrl(const QUrl& url);
+
 //! Primary image of an item. Jellyfin serves images without authentication.
 [[nodiscard]] QUrl imageUrl(const QUrl& server, const QString& itemId, const QString& tag, int maxSize);
 

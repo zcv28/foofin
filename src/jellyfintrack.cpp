@@ -232,6 +232,14 @@ QUrl resolveStreamUrl(const QUrl& server, const QString& itemId, const StreamOpt
     return apiUrl(server, u"/Audio/%1/stream"_s.arg(itemId), query);
 }
 
+bool isAuthenticatedStreamUrl(const QUrl& url)
+{
+    static const QRegularExpression streamPath{uR"(/Audio/[0-9a-fA-F-]{32,36}/stream$)"_s};
+    const QUrlQuery query{url};
+    return streamPath.match(url.path()).hasMatch()
+        && (query.hasQueryItem(u"ApiKey"_s) || query.hasQueryItem(u"api_key"_s));
+}
+
 QUrl imageUrl(const QUrl& server, const QString& itemId, const QString& tag, int maxSize)
 {
     QUrlQuery query;
