@@ -1,0 +1,111 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      fooyin-release:
+        description: 'fooyin release tag to build against (its SDK must be attached)'
+        default: 'nightly'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    env:
+      FOOYIN_RELEASE: ${{ inputs.fooyin-release || 'nightly' }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # fooyin publishes an SDK (headers, import libraries, CMake config) with each release. A plugin
+      # must be built against the SDK of the exact fooyin build it will be loaded into.
+      - name: Download fooyin SDK
+        id: sdk
+        shell: pwsh
+        run: |
+          gh release download $env:FOOYIN_RELEASE --repo fooyin/fooyin `
+            --pattern 'fooyin-sdk-*-windows-x64-msvc-*.zip' --dir sdk-download
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $archive = Get-ChildItem sdk-download/*.zip | Select-Object -First 1
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath sdk
+          $prefix = (Get-ChildItem sdk -Directory | Select-Object -First 1).FullName
+          $manifest = Get-Content "$prefix/sdk-manifest.json" | ConvertFrom-Json
+
+          Write-Host "fooyin $($manifest.fooyin_version) ($($manifest.fooyin_commit)), Qt $($manifest.qt_version), $($manifest.plugin_iid)"
+          "prefix=$prefix" >> $env:GITHUB_OUTPUT
+          "fooyin-version=$($manifest.fooyin_version)" >> $env:GITHUB_OUTPUT
+          "qt-version=$($manifest.qt_version)" >> $env:GITHUB_OUTPUT
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ steps.sdk.outputs.qt-version }}
+          # Same aqtinstall revision as fooyin's own CI (supports the Qt 6.11+ Windows repository layout)
+          aqtsource: git+https://github.com/miurahr/aqtinstall.git@8c3695d4a4e1ceabf6a74dc6c79681656dc6b74b
+          arch: win64_msvc2022_64
+          archives: qtbase
+          cache: true
+
+      - name: Set up MSVC
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: amd64
+
+      - name: Install Ninja
+        run: choco install ninja -y
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DFOOFIN_BUILD_TESTS=ON `
+            "-DCMAKE_PREFIX_PATH=${{ steps.sdk.outputs.prefix }}" `
+            "-DQt6_DIR=$env:QT_ROOT_DIR/lib/cmake/Qt6"
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Test
+        shell: pwsh
+        run: |
+          $env:PATH = "${{ steps.sdk.outputs.prefix }};$env:QT_ROOT_DIR/bin;$env:PATH"
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          ctest --test-dir build --output-on-failure
+
+      - name: Check the plugin loads
+        shell: pwsh
+        run: |
+          # Fails if the DLL references a fooyin/Qt symbol that this fooyin build doesn't export.
+          $env:PATH = "${{ steps.sdk.outputs.prefix }};$env:QT_ROOT_DIR/bin;$env:PATH"
+          $plugin = (Resolve-Path build/fyplugin_foofin.dll).Path
+          $handle = [System.Runtime.InteropServices.NativeLibrary]::Load($plugin)
+          try {
+            [void][System.Runtime.InteropServices.NativeLibrary]::GetExport($handle, 'qt_plugin_instance')
+          } finally {
+            [System.Runtime.InteropServices.NativeLibrary]::Free($handle)
+          }
+
+      - name: Upload plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: foofin-windows-x64-fooyin-${{ steps.sdk.outputs.fooyin-version }}
+          path: build/fyplugin_foofin.dll
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/fyplugin_foofin.dll
+          body: |
+            Built against fooyin **${{ steps.sdk.outputs.fooyin-version }}** (Windows x64).
+            Install that fooyin build, then add the DLL with Settings → Plugins → Install.
