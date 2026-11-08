@@ -43,6 +43,16 @@ jobs:
 
           Write-Host "fooyin $($manifest.fooyin_version) ($($manifest.fooyin_commit)), Qt $($manifest.qt_version), $($manifest.plugin_iid)"
           "prefix=$prefix" >> $env:GITHUB_OUTPUT
+
+          # The SDK only has fooyin's own DLLs. Running anything that links them also needs their
+          # dependencies (TagLib, FFmpeg, ICU, ...), so fetch the matching portable build as well.
+          gh release download $env:FOOYIN_RELEASE --repo fooyin/fooyin `
+            --pattern "fooyin-$($manifest.fooyin_version)-windows-x64-portable.zip" --dir portable-download
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Expand-Archive -LiteralPath (Get-ChildItem portable-download/*.zip)[0].FullName -DestinationPath portable
+          $runtime = (Get-ChildItem portable -Directory | Select-Object -First 1).FullName
+          if (-not (Test-Path "$runtime/fooyin_core.dll")) { throw 'Portable build has no fooyin_core.dll' }
+          "runtime=$runtime" >> $env:GITHUB_OUTPUT
           "fooyin-version=$($manifest.fooyin_version)" >> $env:GITHUB_OUTPUT
           "qt-version=$($manifest.qt_version)" >> $env:GITHUB_OUTPUT
 
@@ -75,17 +85,21 @@ jobs:
         run: cmake --build build --config Release
 
       - name: Test
+        timeout-minutes: 10
         shell: pwsh
         run: |
-          $env:PATH = "${{ steps.sdk.outputs.prefix }};$env:QT_ROOT_DIR/bin;$env:PATH"
+          # A missing DLL makes Windows show a blocking error dialog, hence the timeouts.
+          $env:PATH = "${{ steps.sdk.outputs.runtime }};$env:QT_ROOT_DIR/bin;$env:PATH"
+          $env:QT_PLUGIN_PATH = "$env:QT_ROOT_DIR/plugins"
           $env:QT_QPA_PLATFORM = 'offscreen'
-          ctest --test-dir build --output-on-failure
+          ctest --test-dir build --output-on-failure --timeout 120
 
       - name: Check the plugin loads
+        timeout-minutes: 5
         shell: pwsh
         run: |
           # Fails if the DLL references a fooyin/Qt symbol that this fooyin build doesn't export.
-          $env:PATH = "${{ steps.sdk.outputs.prefix }};$env:QT_ROOT_DIR/bin;$env:PATH"
+          $env:PATH = "${{ steps.sdk.outputs.runtime }};$env:QT_ROOT_DIR/bin;$env:PATH"
           $plugin = (Resolve-Path build/fyplugin_foofin.dll).Path
           $handle = [System.Runtime.InteropServices.NativeLibrary]::Load($plugin)
           try {
