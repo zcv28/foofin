@@ -102,6 +102,7 @@ public:
     void refresh(const QModelIndex& index);
 
     [[nodiscard]] NodeKind kind(const QModelIndex& index) const;
+    [[nodiscard]] Category category(const QModelIndex& index) const;
     [[nodiscard]] JellyfinItem item(const QModelIndex& index) const;
     [[nodiscard]] QString label(const QModelIndex& index) const;
     [[nodiscard]] bool canResolve(const QModelIndex& index) const;

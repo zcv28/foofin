@@ -49,8 +49,30 @@ struct StreamOptions
  */
 [[nodiscard]] QString trackPath(const QUrl& server, const QString& itemId);
 
-//! Returns the item id when @p path is a track path on @p server, otherwise an empty string.
+//! Returns the item id when @p path is a (legacy) http track path on @p server, otherwise an empty string.
 [[nodiscard]] QString itemIdFromTrackPath(const QUrl& server, const QString& path);
+
+/*!
+ * Jellyfin tracks are stored as entries of a small per-server "archive" file
+ * ("unpack://jellyfin|<n>|file://<dir>/<serverId>.jellyfin!<itemId>.<ext>"), which the plugin's
+ * archive reader turns into an HTTP stream. fooyin treats archive tracks like local files, so
+ * gapless playback, next-track preloading and the waveform seekbar all work, which they don't for
+ * plain http(s) URLs.
+ */
+constexpr auto ArchiveExtension = "jellyfin";
+
+[[nodiscard]] QString archiveTrackPath(const QString& archiveFile, const QString& itemId, const QString& container);
+//! Item id from an archive entry name ("<itemId>.<ext>"), or empty.
+[[nodiscard]] QString itemIdFromEntry(const QString& entry);
+//! Item id and server id of a Jellyfin archive track path; both empty if @p path isn't one.
+struct ArchiveTrackRef
+{
+    QString serverId;
+    QString itemId;
+};
+[[nodiscard]] ArchiveTrackRef archiveTrackRef(const QString& path);
+//! File extension for an entry, from a Jellyfin container string ("flac", "mov,mp4,m4a,...").
+[[nodiscard]] QString entryExtension(const QString& container);
 
 //! The URL actually requested for playback, including authentication and stream options.
 [[nodiscard]] QUrl resolveStreamUrl(const QUrl& server, const QString& itemId, const StreamOptions& options,
@@ -62,8 +84,12 @@ struct StreamOptions
 //! Image URL used for a track's artwork (the album cover, falling back to the track's own image).
 [[nodiscard]] QUrl trackArtworkUrl(const QUrl& server, const JellyfinItem& item, int maxSize);
 
-//! Converts an Audio item into a fooyin track whose metadata needs no further reading.
-[[nodiscard]] Track toTrack(const JellyfinItem& item, const QUrl& server, int artworkSize);
+/*!
+ * Converts an Audio item into a fooyin track whose metadata needs no further reading.
+ * With an @p archiveFile the track gets an archive path, otherwise a plain http stream path.
+ */
+[[nodiscard]] Track toTrack(const JellyfinItem& item, const QUrl& server, const QString& archiveFile,
+                            int artworkSize);
 
 //! Fooyin-style codec name ("FLAC", "MP3", "Opus", ...) for a Jellyfin/FFmpeg codec id.
 [[nodiscard]] QString displayCodec(const QString& codec);

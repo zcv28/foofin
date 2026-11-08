@@ -11,6 +11,7 @@
  * The test only reads from the server (plus a zero-length playback session report).
  */
 
+#include "jellyfinarchive.h"
 #include "jellyfinbrowsermodel.h"
 #include "jellyfinclient.h"
 #include "jellyfinimagecache.h"
@@ -24,6 +25,8 @@
 #include <utils/settings/settingsmanager.h>
 
 #include <QAbstractItemModelTester>
+#include <QFile>
+#include <QImage>
 #include <QHeaderView>
 #include <QIODevice>
 #include <QJsonObject>
@@ -79,6 +82,7 @@ private Q_SLOTS:
     void browsesLibrary();
     void searches();
     void opensSeekableStream();
+    void opensArchiveEntry();
     void reportsPlayback();
     void cleanupTestCase();
 
@@ -105,7 +109,9 @@ void JellyfinLiveTest::initTestCase()
         QSKIP("Set FOOFIN_TEST_SERVER and FOOFIN_TEST_USER to run the live tests");
     }
 
-    m_dir      = std::make_unique<QTemporaryDir>();
+    m_dir = std::make_unique<QTemporaryDir>();
+    // The session writes its per-server archive file below the data directory.
+    qputenv("XDG_DATA_HOME", m_dir->filePath(u"data"_s).toLocal8Bit());
     m_settings = std::make_unique<SettingsManager>(m_dir->filePath(u"fooyin.conf"_s));
     registerSettings(m_settings.get());
 
@@ -192,7 +198,8 @@ void JellyfinLiveTest::browsesLibrary()
     QVERIFY(resolved); // loaded children resolve without another request
     QCOMPARE(static_cast<int>(m_albumTracks.size()), model.rowCount(album));
     for(const Track& track : m_albumTracks) {
-        QVERIFY(track.isRemote());
+        QVERIFY(track.isInArchive()); // archive paths: gapless + waveform support
+        QVERIFY(!track.isRemote());
         QVERIFY(!m_session->itemIdForPath(track.filepath()).isEmpty());
         QVERIFY(!track.title().isEmpty());
         QVERIFY(track.duration() > 0);
@@ -289,7 +296,9 @@ void JellyfinLiveTest::opensSeekableStream()
     const Track& track = m_albumTracks.front();
 
     const JellyfinSourceProvider provider{std::make_shared<RemoteIoService>(m_network, m_settings.get()), m_session};
-    RemoteStreamSource source = provider.createStreamSource(QUrl{track.filepath()});
+    // Track paths used to be plain http stream URLs; those still go through the source provider.
+    const QString legacyPath = trackPath(m_session->credentials().server, m_session->itemIdForPath(track.filepath()));
+    RemoteStreamSource source = provider.createStreamSource(QUrl{legacyPath});
     QVERIFY(source.device);
     QVERIFY(source.remoteDevice);
     QVERIFY(source.device->open(QIODevice::ReadOnly));
@@ -340,6 +349,52 @@ void JellyfinLiveTest::opensSeekableStream()
             << "and read again";
 
     source.device->close();
+}
+
+void JellyfinLiveTest::opensArchiveEntry()
+{
+    QVERIFY(!m_albumTracks.empty());
+    const Track track = m_albumTracks.front();
+    QVERIFY(QFile::exists(track.archivePath()));
+
+    JellyfinArchiveReader reader{std::make_shared<RemoteIoService>(m_network, m_settings.get()), m_network, m_session};
+    QVERIFY(reader.init(track.archivePath()));
+
+    // Decoders and cover loading run off the network (main) thread; so does this.
+    struct Result
+    {
+        qint64 size{0};
+        bool sequential{true};
+        QByteArray head;
+        QByteArray middle;
+        QByteArray cover;
+    };
+    auto worker = std::async(std::launch::async, [&reader, &track]() {
+        Result result;
+        ArchiveEntryData entry = reader.entry(track.pathInArchive());
+        if(!entry.device) {
+            return result;
+        }
+        result.size       = entry.device->size();
+        result.sequential = entry.device->isSequential();
+        result.head       = entry.device->read(4096);
+        if(entry.device->seek(result.size / 2)) {
+            result.middle = entry.device->read(4096);
+        }
+        result.cover = reader.readCover(track, Track::Cover::Front);
+        return result;
+    });
+
+    QTRY_VERIFY_WITH_TIMEOUT(worker.wait_for(std::chrono::seconds{0}) == std::future_status::ready, NetworkTimeoutMs);
+    const Result result = worker.get();
+    QVERIFY(result.size > 0);
+    QVERIFY2(!result.sequential, "archive entries must be seekable");
+    QCOMPARE(result.head.size(), 4096);
+    QCOMPARE(result.middle.size(), 4096);
+    QVERIFY(result.head != result.middle);
+    QVERIFY2(!QImage::fromData(result.cover).isNull(), "readCover should return the album image");
+    qInfo() << "Archive entry" << track.pathInArchive() << "is" << result.size << "bytes; cover"
+            << result.cover.size() << "bytes";
 }
 
 void JellyfinLiveTest::reportsPlayback()

@@ -6,10 +6,12 @@
 
 #include "foofinplugin.h"
 
+#include "jellyfinarchive.h"
 #include "jellyfinbrowserwidget.h"
 #include "jellyfinclient.h"
 #include "jellyfinimagecache.h"
 #include "jellyfinplaybackreporter.h"
+#include "jellyfinplaylistsync.h"
 #include "jellyfinsession.h"
 #include "jellyfinsettings.h"
 #include "jellyfinsettingspage.h"
@@ -17,6 +19,7 @@
 
 #include <core/engine/audioloader.h>
 #include <core/network/networkaccessmanager.h>
+#include <core/network/remoteioservice.h>
 #include <gui/guiconstants.h>
 #include <gui/widgetprovider.h>
 #include <utils/actions/actioncontainer.h>
@@ -44,10 +47,17 @@ void FoofinPlugin::initialise(const CorePluginContext& context)
 
     m_audioLoader = context.audioLoader;
     if(m_audioLoader) {
-        installSourceProvider(*m_audioLoader, m_network, m_settings, m_session);
+        // fooyin's own HTTP stream implementation, shared by both ways of opening Jellyfin tracks:
+        // the archive reader (current track paths) and the source provider (legacy http paths).
+        auto io = std::make_shared<RemoteIoService>(m_network, m_settings);
+        registerArchiveReader(*m_audioLoader, io, m_network, m_session);
+        installSourceProvider(*m_audioLoader, io, m_session);
     }
 
     m_reporter = new JellyfinPlaybackReporter(m_client, context.playerController, m_settings, this);
+    if(context.playlistHandler) {
+        m_playlistSync = new JellyfinPlaylistSync(m_client, context.playlistHandler, m_settings, this);
+    }
 
     QObject::connect(m_client, &JellyfinClient::authenticationFailed, this,
                      []() { qCWarning(FOOFIN) << "Jellyfin rejected the stored access token; sign in again"; });
@@ -64,7 +74,7 @@ void FoofinPlugin::initialise(const GuiPluginContext& context)
     m_trackSelection = context.trackSelection;
     m_images         = new JellyfinImageCache(m_network, this);
 
-    new JellyfinSettingsPage(m_client, m_settings, this);
+    new JellyfinSettingsPage(m_client, m_playlistSync, m_settings, this);
 
     context.widgetProvider->registerWidget(u"JellyfinBrowser"_s, [this]() { return createBrowser(); },
                                            tr("Jellyfin Browser"));
@@ -98,7 +108,8 @@ void FoofinPlugin::shutdown()
 
 JellyfinBrowserWidget* FoofinPlugin::createBrowser()
 {
-    return new JellyfinBrowserWidget(m_client, m_images, m_actionManager, m_trackSelection, m_settings);
+    return new JellyfinBrowserWidget(m_client, m_images, m_playlistSync, m_actionManager, m_trackSelection,
+                                     m_settings);
 }
 } // namespace Fooyin::Jellyfin
 

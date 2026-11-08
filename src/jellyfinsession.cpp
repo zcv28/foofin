@@ -9,8 +9,14 @@
 #include "jellyfinsettings.h"
 
 #include <core/accountstore.h>
+#include <utils/fypaths.h>
 #include <utils/settings/settingsmanager.h>
 
+#include <QDir>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSaveFile>
 #include <QSysInfo>
 #include <QUuid>
 
@@ -61,6 +67,10 @@ JellyfinSession::JellyfinSession(SettingsManager* settings, DbConnectionPoolPtr 
                 credentials.token = it->second;
             }
         }
+    }
+
+    if(credentials.isValid()) {
+        writeArchiveFile(credentials);
     }
 
     {
@@ -159,6 +169,7 @@ void JellyfinSession::signIn(const SignInResult& result)
         m_credentials.userId     = result.userId;
         m_credentials.token      = result.token;
     }
+    writeArchiveFile(credentials());
 
     qCInfo(FOOFIN) << "Signed in to" << result.server.toString() << "as" << result.username;
     Q_EMIT signedInChanged(true);
@@ -183,7 +194,43 @@ void JellyfinSession::signOut()
 QString JellyfinSession::itemIdForPath(const QString& path) const
 {
     const std::scoped_lock lock{m_mutex};
+    if(const ArchiveTrackRef ref = archiveTrackRef(path); !ref.itemId.isEmpty()) {
+        return ref.serverId == m_credentials.serverId ? ref.itemId : QString{};
+    }
     return itemIdFromTrackPath(m_credentials.server, path);
+}
+
+QString JellyfinSession::archiveFile() const
+{
+    const std::scoped_lock lock{m_mutex};
+    return m_credentials.serverId.isEmpty() ? QString{} : archiveFilePath(m_credentials.serverId);
+}
+
+QString JellyfinSession::archiveFilePath(const QString& serverId)
+{
+    return Utils::sharePath(u"foofin"_s) + u'/' + serverId + u'.' + QLatin1StringView{ArchiveExtension};
+}
+
+void JellyfinSession::writeArchiveFile(const Credentials& credentials) const
+{
+    if(credentials.serverId.isEmpty()) {
+        return;
+    }
+
+    // Holds what the archive reader needs to reach the server. Rewritten on every sign-in, so
+    // playlists keep working when the server's address changes.
+    QJsonObject object;
+    object.insert("ServerId"_L1, credentials.serverId);
+    object.insert("ServerName"_L1, credentials.serverName);
+    object.insert("ServerUrl"_L1, credentials.server.toString());
+
+    const QString path = archiveFilePath(credentials.serverId);
+    QDir{}.mkpath(QFileInfo{path}.absolutePath());
+
+    QSaveFile file{path};
+    if(!file.open(QIODevice::WriteOnly) || file.write(QJsonDocument{object}.toJson()) < 0 || !file.commit()) {
+        qCWarning(FOOFIN) << "Unable to write" << path << file.errorString();
+    }
 }
 
 void JellyfinSession::reloadPreferences()

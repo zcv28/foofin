@@ -13,13 +13,15 @@ class SettingsManager;
 
 namespace Jellyfin {
 class JellyfinClient;
+class JellyfinPlaylistSync;
 
 class JellyfinSettingsPage : public SettingsPage
 {
     Q_OBJECT
 
 public:
-    JellyfinSettingsPage(JellyfinClient* client, SettingsManager* settings, QObject* parent = nullptr);
+    JellyfinSettingsPage(JellyfinClient* client, JellyfinPlaylistSync* playlistSync, SettingsManager* settings,
+                         QObject* parent = nullptr);
 };
 } // namespace Jellyfin
 } // namespace Fooyin

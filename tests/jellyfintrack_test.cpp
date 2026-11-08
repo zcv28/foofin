@@ -49,6 +49,8 @@ private Q_SLOTS:
     void convertsToTrack();
     void parsesDates();
     void parsesPages();
+    void archivePathRoundTrip();
+    void picksEntryExtensions();
 };
 
 void JellyfinTrackTest::normalisesServerUrls_data()
@@ -149,7 +151,7 @@ void JellyfinTrackTest::convertsToTrack()
 {
     const QUrl server{u"http://nas:8096"_s};
     const auto item  = JellyfinItem::fromJson(QJsonDocument::fromJson(AudioJson).object());
-    const Track track = toTrack(item, server, 600);
+    const Track track = toTrack(item, server, {}, 600);
 
     QVERIFY(track.isRemote());
     QCOMPARE(track.filepath(), u"http://nas:8096/Audio/a794b7c125d436df8dc2d870ad7b7e1e/stream"_s);
@@ -198,6 +200,48 @@ void JellyfinTrackTest::parsesPages()
     QCOMPARE(page.items.at(0).type, ItemType::MusicAlbum);
     QCOMPARE(page.items.at(0).productionYear, 1999);
     QCOMPARE(page.items.at(1).type, ItemType::MusicArtist);
+}
+
+void JellyfinTrackTest::archivePathRoundTrip()
+{
+    const QString archive = u"/home/me/.local/share/fooyin/foofin/f0b3381645f04afb9a0e392e74b6a1b0.jellyfin"_s;
+    const QString itemId  = u"a794b7c125d436df8dc2d870ad7b7e1e"_s;
+    const QString path    = archiveTrackPath(archive, itemId, u"flac"_s);
+
+    const Track track{path};
+    QVERIFY(track.isInArchive());
+    QVERIFY(!track.isRemote()); // what makes gapless playback and the waveform seekbar work
+    QCOMPARE(track.archivePath(), archive);
+    QCOMPARE(track.pathInArchive(), itemId + u".flac"_s);
+
+    const ArchiveTrackRef ref = archiveTrackRef(path);
+    QCOMPARE(ref.itemId, itemId);
+    QCOMPARE(ref.serverId, u"f0b3381645f04afb9a0e392e74b6a1b0"_s);
+
+    // Windows paths and other archives
+    const QString windows = archiveTrackPath(u"C:/Users/me/AppData/Local/fooyin/foofin/abc.jellyfin"_s, itemId, u"mp3"_s);
+    QCOMPARE(archiveTrackRef(windows).serverId, u"abc"_s);
+    QCOMPARE(Track{windows}.archivePath(), u"C:/Users/me/AppData/Local/fooyin/foofin/abc.jellyfin"_s);
+    QVERIFY(archiveTrackRef(u"unpack://zip|8|file:///a/b.zip!song.flac"_s).itemId.isEmpty());
+    QVERIFY(archiveTrackRef(u"/music/song.flac"_s).itemId.isEmpty());
+
+    const auto item   = JellyfinItem::fromJson(QJsonDocument::fromJson(AudioJson).object());
+    const Track fromItem = toTrack(item, QUrl{u"http://nas:8096"_s}, archive, 600);
+    QVERIFY(fromItem.isInArchive());
+    QCOMPARE(fromItem.pathInArchive(), itemId + u".mp3"_s);
+    QCOMPARE(fromItem.title(), u"Bend"_s);
+}
+
+void JellyfinTrackTest::picksEntryExtensions()
+{
+    QCOMPARE(entryExtension(u"flac"_s), u"flac"_s);
+    QCOMPARE(entryExtension(u"mov,mp4,m4a,3gp,3g2,mj2"_s), u"m4a"_s);
+    QCOMPARE(entryExtension(u"MP3"_s), u"mp3"_s);
+    QCOMPARE(entryExtension(u"ogg"_s), u"ogg"_s);
+    QCOMPARE(entryExtension({}), u"mka"_s);
+    QCOMPARE(entryExtension(u"something-new"_s), u"mka"_s);
+    QCOMPARE(itemIdFromEntry(u"a794b7c125d436df8dc2d870ad7b7e1e.flac"_s), u"a794b7c125d436df8dc2d870ad7b7e1e"_s);
+    QVERIFY(itemIdFromEntry(u"cover.jpg"_s).isEmpty());
 }
 
 QTEST_GUILESS_MAIN(JellyfinTrackTest)

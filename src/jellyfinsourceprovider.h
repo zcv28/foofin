@@ -39,8 +39,8 @@ private:
     std::shared_ptr<JellyfinSession> m_session;
 };
 
-//! Installs the provider into @p loader.
-void installSourceProvider(AudioLoader& loader, const std::shared_ptr<NetworkAccessManager>& network,
-                           SettingsManager* settings, const std::shared_ptr<JellyfinSession>& session);
+//! Installs the provider into @p loader; @p io handles every URL that isn't a Jellyfin stream.
+void installSourceProvider(AudioLoader& loader, const std::shared_ptr<RemoteIoService>& io,
+                           const std::shared_ptr<JellyfinSession>& session);
 } // namespace Jellyfin
 } // namespace Fooyin

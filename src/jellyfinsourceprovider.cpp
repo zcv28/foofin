@@ -44,12 +44,11 @@ RemoteStreamSource JellyfinSourceProvider::createStreamSource(const QUrl& url) c
     return m_fallback->createStreamSource(streamUrl);
 }
 
-void installSourceProvider(AudioLoader& loader, const std::shared_ptr<NetworkAccessManager>& network,
-                           SettingsManager* settings, const std::shared_ptr<JellyfinSession>& session)
+void installSourceProvider(AudioLoader& loader, const std::shared_ptr<RemoteIoService>& io,
+                           const std::shared_ptr<JellyfinSession>& session)
 {
     // fooyin has a single provider slot and no way to retrieve the current one, so wrap a fresh
-    // instance of its default implementation for everything that isn't ours.
-    auto fallback = std::make_shared<RemoteIoService>(network, settings);
-    loader.setRemoteSourceProvider(std::make_shared<JellyfinSourceProvider>(std::move(fallback), session));
+    // instance of its default implementation (@p io) for everything that isn't ours.
+    loader.setRemoteSourceProvider(std::make_shared<JellyfinSourceProvider>(io, session));
 }
 } // namespace Fooyin::Jellyfin

@@ -37,6 +37,9 @@ constexpr auto ReportPlayback = "Foofin/ReportPlayback";
 constexpr auto ArtworkSize    = "Foofin/ArtworkSize";
 constexpr auto BrowserCovers  = "Foofin/BrowserCovers";
 constexpr auto DoubleClick    = "Foofin/DoubleClickAction";
+constexpr auto MirrorPlaylists   = "Foofin/MirrorPlaylists";
+//! Names of the fooyin playlists created by the playlist mirror (internal).
+constexpr auto MirroredPlaylists = "Foofin/MirroredPlaylists";
 } // namespace Settings
 
 void registerSettings(SettingsManager* settings);

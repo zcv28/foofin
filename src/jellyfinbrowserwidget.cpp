@@ -8,6 +8,7 @@
 
 #include "jellyfinbrowsermodel.h"
 #include "jellyfinclient.h"
+#include "jellyfinplaylistsync.h"
 #include "jellyfinsession.h"
 #include "jellyfinsettings.h"
 
@@ -37,10 +38,12 @@ constexpr int SearchDelayMs = 400;
 
 namespace Fooyin::Jellyfin {
 JellyfinBrowserWidget::JellyfinBrowserWidget(JellyfinClient* client, JellyfinImageCache* images,
-                                             ActionManager* actionManager, TrackSelectionController* trackSelection,
-                                             SettingsManager* settings, QWidget* parent)
+                                             JellyfinPlaylistSync* playlistSync, ActionManager* actionManager,
+                                             TrackSelectionController* trackSelection, SettingsManager* settings,
+                                             QWidget* parent)
     : FyWidget{parent}
     , m_client{client}
+    , m_playlistSync{playlistSync}
     , m_actionManager{actionManager}
     , m_trackSelection{trackSelection}
     , m_settings{settings}
@@ -341,6 +344,17 @@ void JellyfinBrowserWidget::showContextMenu(const QPoint& pos)
         auto* favourite = menu->addAction(allFavourite ? tr("Remove from &favourites") : tr("Add to &favourites"), this,
                                           [this, rows, allFavourite]() { setFavourite(rows, !allFavourite); });
         Gui::setThemeIcon(favourite, allFavourite ? Constants::Icons::Unlove : Constants::Icons::Love);
+    }
+
+    const bool playlistsClicked = clicked.isValid()
+                               && (m_model->kind(clicked) == NodeKind::Playlist
+                                   || m_model->category(clicked) == Category::Playlists);
+    if(m_playlistSync && playlistsClicked) {
+        menu->addSeparator();
+        menu->addAction(tr("&Sync to fooyin playlists"), this, [this]() {
+            m_settings->set(QLatin1StringView{Settings::MirrorPlaylists}, true);
+            m_playlistSync->sync();
+        });
     }
 
     if(!menu->isEmpty()) {

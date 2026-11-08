@@ -589,6 +589,28 @@ void JellyfinBrowserModel::fetchChildren(Node* node, std::function<void()> whenD
                            if(!target) {
                                return;
                            }
+
+                           // With inconsistent tags an album artist can own tracks but no album
+                           // items (the albums are credited to a differently spelled artist).
+                           // Show the tracks themselves rather than an empty artist.
+                           if(target->kind == NodeKind::Artist && page.items.empty() && error.isEmpty()) {
+                               if(const auto tracks = trackListing(*target)) {
+                                   m_client->allItems(
+                                       tracks->path, tracks->query, -1, this,
+                                       [this, id, generation, runWaiters](const ItemPage& trackPage,
+                                                                          const QString& trackError) {
+                                           if(generation != m_generation) {
+                                               return;
+                                           }
+                                           if(Node* artist = findNode(id)) {
+                                               populate(artist, trackPage.items, NodeKind::Track, trackError);
+                                               runWaiters(artist);
+                                           }
+                                       });
+                                   return;
+                               }
+                           }
+
                            populate(target, page.items, kind, error);
                            runWaiters(target);
                        });
@@ -700,7 +722,8 @@ void JellyfinBrowserModel::unregisterSubtree(Node* node)
 
 Track JellyfinBrowserModel::trackForItem(const JellyfinItem& item) const
 {
-    return toTrack(item, m_client->session()->credentials().server, m_client->session()->artworkSize());
+    const auto session = m_client->session();
+    return toTrack(item, session->credentials().server, session->archiveFile(), session->artworkSize());
 }
 
 void JellyfinBrowserModel::resolveNode(quint64 id, std::function<void(TrackList)> done)
@@ -953,6 +976,12 @@ NodeKind JellyfinBrowserModel::kind(const QModelIndex& index) const
 {
     const Node* node = nodeFromIndex(index);
     return node ? node->kind : NodeKind::Root;
+}
+
+Category JellyfinBrowserModel::category(const QModelIndex& index) const
+{
+    const Node* node = nodeFromIndex(index);
+    return node ? node->category : Category::None;
 }
 
 JellyfinItem JellyfinBrowserModel::item(const QModelIndex& index) const

@@ -24,6 +24,7 @@ class JellyfinBrowserWidget;
 class JellyfinClient;
 class JellyfinImageCache;
 class JellyfinPlaybackReporter;
+class JellyfinPlaylistSync;
 class JellyfinSession;
 
 class FoofinPlugin : public QObject,
@@ -52,6 +53,7 @@ private:
     std::shared_ptr<JellyfinSession> m_session;
     JellyfinClient* m_client{nullptr};
     JellyfinPlaybackReporter* m_reporter{nullptr};
+    JellyfinPlaylistSync* m_playlistSync{nullptr};
 
     ActionManager* m_actionManager{nullptr};
     TrackSelectionController* m_trackSelection{nullptr};

@@ -7,6 +7,7 @@
 #include "jellyfintrack.h"
 
 #include <QDateTime>
+#include <QFileInfo>
 #include <QRegularExpression>
 
 #include <algorithm>
@@ -134,6 +135,61 @@ QString itemIdFromTrackPath(const QUrl& server, const QString& path)
     return match.hasMatch() ? match.captured(1) : QString{};
 }
 
+QString archiveTrackPath(const QString& archiveFile, const QString& itemId, const QString& container)
+{
+    // Same layout fooyin uses for its own archive tracks; the length lets the archive path contain '!'.
+    return u"unpack://%1|%2|file://%3!%4.%5"_s.arg(QString::fromLatin1(ArchiveExtension))
+        .arg(archiveFile.size())
+        .arg(archiveFile, itemId, entryExtension(container));
+}
+
+QString itemIdFromEntry(const QString& entry)
+{
+    static const QRegularExpression entryPattern{uR"(^([0-9a-fA-F-]{32,36})(\.[A-Za-z0-9]+)?$)"_s};
+    const auto match = entryPattern.match(entry);
+    return match.hasMatch() ? match.captured(1) : QString{};
+}
+
+ArchiveTrackRef archiveTrackRef(const QString& path)
+{
+    if(!Track::isArchivePath(path)) {
+        return {};
+    }
+
+    const Track track{path};
+    const QFileInfo archive{track.archivePath()};
+    if(archive.suffix().compare(QLatin1StringView{ArchiveExtension}, Qt::CaseInsensitive) != 0) {
+        return {};
+    }
+
+    ArchiveTrackRef ref;
+    ref.itemId = itemIdFromEntry(track.pathInArchive());
+    if(!ref.itemId.isEmpty()) {
+        ref.serverId = archive.completeBaseName();
+    }
+    return ref;
+}
+
+QString entryExtension(const QString& container)
+{
+    // Containers come as FFmpeg demuxer lists, e.g. "mov,mp4,m4a,3gp,3g2,mj2" for AAC/ALAC files.
+    static const QStringList known{u"flac"_s, u"mp3"_s, u"ogg"_s, u"opus"_s, u"m4a"_s, u"mp4"_s, u"aac"_s,
+                                   u"wav"_s,  u"wv"_s,  u"ape"_s, u"wma"_s,  u"mpc"_s, u"dsf"_s, u"dff"_s,
+                                   u"aiff"_s, u"aif"_s, u"mka"_s, u"webm"_s, u"oga"_s, u"tta"_s};
+
+    const QStringList parts = container.toLower().split(u',', Qt::SkipEmptyParts);
+    if(parts.contains(u"m4a"_s)) {
+        return u"m4a"_s;
+    }
+    for(const QString& part : parts) {
+        if(known.contains(part.trimmed())) {
+            return part.trimmed();
+        }
+    }
+    // FFmpeg handles anything; it probes the content rather than trusting the extension.
+    return u"mka"_s;
+}
+
 QUrl resolveStreamUrl(const QUrl& server, const QString& itemId, const StreamOptions& options, const QString& token,
                       const QString& deviceId)
 {
@@ -250,9 +306,10 @@ uint64_t parseJellyfinDate(const QString& date)
     return static_cast<uint64_t>(dateTime.toMSecsSinceEpoch());
 }
 
-Track toTrack(const JellyfinItem& item, const QUrl& server, int artworkSize)
+Track toTrack(const JellyfinItem& item, const QUrl& server, const QString& archiveFile, int artworkSize)
 {
-    Track track{trackPath(server, item.id)};
+    Track track{archiveFile.isEmpty() ? trackPath(server, item.id)
+                                      : archiveTrackPath(archiveFile, item.id, item.container)};
 
     track.setTitle(item.name);
     track.setArtists(item.artists);

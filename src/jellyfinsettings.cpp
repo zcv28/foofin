@@ -32,5 +32,7 @@ void registerSettings(SettingsManager* settings)
     settings->createSetting(QString::fromLatin1(Settings::ArtworkSize), 600);
     settings->createSetting(QString::fromLatin1(Settings::BrowserCovers), true);
     settings->createSetting(QString::fromLatin1(Settings::DoubleClick), static_cast<int>(TrackAction::Play));
+    settings->createSetting(QString::fromLatin1(Settings::MirrorPlaylists), true);
+    settings->createSetting(QString::fromLatin1(Settings::MirroredPlaylists), QStringList{});
 }
 } // namespace Fooyin::Jellyfin

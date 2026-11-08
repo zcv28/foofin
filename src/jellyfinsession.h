@@ -79,8 +79,12 @@ public:
     void signIn(const SignInResult& result);
     void signOut();
 
-    //! Item id of @p track's stream on the signed-in server, or empty. Thread-safe.
+    //! Item id of a track path (archive or legacy http) on the signed-in server, or empty. Thread-safe.
     [[nodiscard]] QString itemIdForPath(const QString& path) const;
+
+    //! The archive file standing in for the signed-in server (see archiveTrackPath()). Thread-safe.
+    [[nodiscard]] QString archiveFile() const;
+    [[nodiscard]] static QString archiveFilePath(const QString& serverId);
 
 Q_SIGNALS:
     void signedInChanged(bool signedIn);
@@ -88,6 +92,7 @@ Q_SIGNALS:
 
 private:
     void reloadPreferences();
+    void writeArchiveFile(const Credentials& credentials) const;
 
     SettingsManager* m_settings;
     std::unique_ptr<AccountStore> m_accounts;

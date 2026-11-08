@@ -26,6 +26,7 @@ namespace Jellyfin {
 class JellyfinBrowserModel;
 class JellyfinClient;
 class JellyfinImageCache;
+class JellyfinPlaylistSync;
 
 //! Layout widget (and standalone window) for browsing a Jellyfin music library.
 class JellyfinBrowserWidget : public FyWidget
@@ -33,9 +34,9 @@ class JellyfinBrowserWidget : public FyWidget
     Q_OBJECT
 
 public:
-    JellyfinBrowserWidget(JellyfinClient* client, JellyfinImageCache* images, ActionManager* actionManager,
-                          TrackSelectionController* trackSelection, SettingsManager* settings,
-                          QWidget* parent = nullptr);
+    JellyfinBrowserWidget(JellyfinClient* client, JellyfinImageCache* images, JellyfinPlaylistSync* playlistSync,
+                          ActionManager* actionManager, TrackSelectionController* trackSelection,
+                          SettingsManager* settings, QWidget* parent = nullptr);
     ~JellyfinBrowserWidget() override;
 
     [[nodiscard]] QString name() const override;
@@ -59,6 +60,7 @@ private:
     void updateConnectionState();
 
     JellyfinClient* m_client;
+    JellyfinPlaylistSync* m_playlistSync;
     ActionManager* m_actionManager;
     TrackSelectionController* m_trackSelection;
     SettingsManager* m_settings;

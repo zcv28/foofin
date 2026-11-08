@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
     foofin
-    VERSION 0.1.0
+    VERSION 0.2.0
     DESCRIPTION "Jellyfin plugin for fooyin"
     LANGUAGES CXX
 )
@@ -22,6 +22,8 @@ create_fooyin_plugin(
             Qt6::Network
     SOURCES src/foofinplugin.cpp
             src/foofinplugin.h
+            src/jellyfinarchive.cpp
+            src/jellyfinarchive.h
             src/jellyfinbrowsermodel.cpp
             src/jellyfinbrowsermodel.h
             src/jellyfinbrowserwidget.cpp
@@ -34,6 +36,8 @@ create_fooyin_plugin(
             src/jellyfinitem.h
             src/jellyfinplaybackreporter.cpp
             src/jellyfinplaybackreporter.h
+            src/jellyfinplaylistsync.cpp
+            src/jellyfinplaylistsync.h
             src/jellyfinsession.cpp
             src/jellyfinsession.h
             src/jellyfinsettings.cpp
@@ -45,6 +49,12 @@ create_fooyin_plugin(
             src/jellyfintrack.cpp
             src/jellyfintrack.h
 )
+
+# Installable package for fooyin's Settings → Plugins → Install:
+#   cmake --build build --target package_plugin  ->  build/foofin-<os>-<arch>.fyplugin
+if(COMMAND create_fooyin_plugin_bundle)
+    create_fooyin_plugin_bundle(foofin FILES README.md LICENSE_FILES COPYING)
+endif()
 
 target_include_directories(foofin PRIVATE src)
 target_compile_definitions(foofin PRIVATE FOOFIN_VERSION="${PROJECT_VERSION}")
@@ -70,6 +80,7 @@ if(FOOFIN_BUILD_TESTS)
     add_executable(
         foofin_live_test
         tests/jellyfin_live_test.cpp
+        src/jellyfinarchive.cpp
         src/jellyfinbrowsermodel.cpp
         src/jellyfinclient.cpp
         src/jellyfinimagecache.cpp

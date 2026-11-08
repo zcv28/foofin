@@ -7,6 +7,7 @@
 #include "jellyfinsettingspage.h"
 
 #include "jellyfinclient.h"
+#include "jellyfinplaylistsync.h"
 #include "jellyfinsession.h"
 #include "jellyfinsettings.h"
 #include "jellyfintrack.h"
@@ -34,7 +35,7 @@ class JellyfinSettingsPageWidget : public SettingsPageWidget
     Q_OBJECT
 
 public:
-    JellyfinSettingsPageWidget(JellyfinClient* client, SettingsManager* settings);
+    JellyfinSettingsPageWidget(JellyfinClient* client, JellyfinPlaylistSync* playlistSync, SettingsManager* settings);
 
     void load() override;
     void apply() override;
@@ -65,6 +66,10 @@ private:
     QSpinBox* m_maxBitrate;
     QLabel* m_formatNote;
     QCheckBox* m_reportPlayback;
+    QCheckBox* m_mirrorPlaylists;
+    QPushButton* m_syncPlaylists;
+    QLabel* m_syncStatus;
+    JellyfinPlaylistSync* m_playlistSync;
 
     QCheckBox* m_browserCovers;
     QSpinBox* m_artworkSize;
@@ -73,7 +78,8 @@ private:
     bool m_busy{false};
 };
 
-JellyfinSettingsPageWidget::JellyfinSettingsPageWidget(JellyfinClient* client, SettingsManager* settings)
+JellyfinSettingsPageWidget::JellyfinSettingsPageWidget(JellyfinClient* client, JellyfinPlaylistSync* playlistSync,
+                                                       SettingsManager* settings)
     : m_client{client}
     , m_settings{settings}
     , m_server{new QLineEdit(this)}
@@ -88,6 +94,10 @@ JellyfinSettingsPageWidget::JellyfinSettingsPageWidget(JellyfinClient* client, S
     , m_maxBitrate{new QSpinBox(this)}
     , m_formatNote{new QLabel(this)}
     , m_reportPlayback{new QCheckBox(tr("Report playback to the server (now playing, play counts)"), this)}
+    , m_mirrorPlaylists{new QCheckBox(tr("Show Jellyfin playlists as fooyin playlists (read-only)"), this)}
+    , m_syncPlaylists{new QPushButton(tr("Sync Now"), this)}
+    , m_syncStatus{new QLabel(this)}
+    , m_playlistSync{playlistSync}
     , m_browserCovers{new QCheckBox(tr("Show artwork in the browser"), this)}
     , m_artworkSize{new QSpinBox(this)}
     , m_doubleClick{new QComboBox(this)}
@@ -133,6 +143,16 @@ JellyfinSettingsPageWidget::JellyfinSettingsPageWidget(JellyfinClient* client, S
     playbackLayout->addRow(m_formatNote);
     playbackLayout->addRow(m_reportPlayback);
 
+    auto* syncRow = new QHBoxLayout();
+    syncRow->addWidget(m_mirrorPlaylists, 1);
+    syncRow->addWidget(m_syncPlaylists);
+    m_mirrorPlaylists->setToolTip(
+        tr("Keeps a locked copy of every Jellyfin playlist in fooyin, named \"Jellyfin: <name>\". "
+           "Changes are only pulled from the server."));
+    m_syncStatus->setWordWrap(true);
+    playbackLayout->addRow(syncRow);
+    playbackLayout->addRow(m_syncStatus);
+
     m_artworkSize->setRange(100, 3000);
     m_artworkSize->setSingleStep(100);
     m_artworkSize->setSuffix(tr(" px"));
@@ -159,6 +179,22 @@ JellyfinSettingsPageWidget::JellyfinSettingsPageWidget(JellyfinClient* client, S
     QObject::connect(m_signOut, &QPushButton::clicked, this, &JellyfinSettingsPageWidget::signOut);
     QObject::connect(m_refreshLibraries, &QPushButton::clicked, this, &JellyfinSettingsPageWidget::loadLibraries);
     QObject::connect(m_format, &QComboBox::currentIndexChanged, this, &JellyfinSettingsPageWidget::updateFormatState);
+
+    if(m_playlistSync) {
+        QObject::connect(m_syncPlaylists, &QPushButton::clicked, this, [this]() {
+            m_mirrorPlaylists->setChecked(true);
+            m_settings->set(QLatin1StringView{Settings::MirrorPlaylists}, true);
+            m_syncStatus->setText(tr("Syncing playlists…"));
+            m_playlistSync->sync();
+        });
+        QObject::connect(m_playlistSync, &JellyfinPlaylistSync::finished, this, [this](int count, const QString& error) {
+            m_syncStatus->setText(error.isEmpty() ? (count == 1 ? tr("Synced 1 playlist.") : tr("Synced %1 playlists.").arg(count))
+                                                  : tr("Playlist sync failed: %1").arg(error));
+        });
+    }
+    else {
+        m_syncPlaylists->setEnabled(false);
+    }
 }
 
 void JellyfinSettingsPageWidget::load()
@@ -172,6 +208,7 @@ void JellyfinSettingsPageWidget::load()
     m_format->setCurrentIndex(std::max(0, m_format->findData(format)));
     m_maxBitrate->setValue(m_settings->value(QLatin1StringView{Settings::MaxBitrate}).toInt());
     m_reportPlayback->setChecked(m_settings->value(QLatin1StringView{Settings::ReportPlayback}).toBool());
+    m_mirrorPlaylists->setChecked(m_settings->value(QLatin1StringView{Settings::MirrorPlaylists}).toBool());
     m_browserCovers->setChecked(m_settings->value(QLatin1StringView{Settings::BrowserCovers}).toBool());
     m_artworkSize->setValue(m_settings->value(QLatin1StringView{Settings::ArtworkSize}).toInt());
     m_doubleClick->setCurrentIndex(
@@ -187,6 +224,7 @@ void JellyfinSettingsPageWidget::apply()
     m_settings->set(QLatin1StringView{Settings::StreamFormat}, m_format->currentData().toString());
     m_settings->set(QLatin1StringView{Settings::MaxBitrate}, m_maxBitrate->value());
     m_settings->set(QLatin1StringView{Settings::ReportPlayback}, m_reportPlayback->isChecked());
+    m_settings->set(QLatin1StringView{Settings::MirrorPlaylists}, m_mirrorPlaylists->isChecked());
     m_settings->set(QLatin1StringView{Settings::BrowserCovers}, m_browserCovers->isChecked());
     m_settings->set(QLatin1StringView{Settings::ArtworkSize}, m_artworkSize->value());
     m_settings->set(QLatin1StringView{Settings::DoubleClick}, m_doubleClick->currentData().toInt());
@@ -198,7 +236,8 @@ void JellyfinSettingsPageWidget::apply()
 void JellyfinSettingsPageWidget::reset()
 {
     for(const char* key : {Settings::StreamFormat, Settings::MaxBitrate, Settings::ReportPlayback,
-                           Settings::BrowserCovers, Settings::ArtworkSize, Settings::DoubleClick, Settings::LibraryId}) {
+                           Settings::BrowserCovers, Settings::ArtworkSize, Settings::DoubleClick, Settings::LibraryId,
+                           Settings::MirrorPlaylists}) {
         m_settings->reset(QLatin1StringView{key});
     }
 }
@@ -307,14 +346,16 @@ void JellyfinSettingsPageWidget::setStatus(const QString& text, bool error)
 }
 } // namespace
 
-JellyfinSettingsPage::JellyfinSettingsPage(JellyfinClient* client, SettingsManager* settings, QObject* parent)
+JellyfinSettingsPage::JellyfinSettingsPage(JellyfinClient* client, JellyfinPlaylistSync* playlistSync,
+                                           SettingsManager* settings, QObject* parent)
     : SettingsPage{settings->settingsDialog(), parent}
 {
     setId(SettingsPageId);
     setName(tr("Server"));
     setCategory({tr("Jellyfin")});
     setSearchKeywords({u"jellyfin"_s, u"foofin"_s, u"server"_s, u"stream"_s});
-    setWidgetCreator([client, settings] { return new JellyfinSettingsPageWidget(client, settings); });
+    setWidgetCreator(
+        [client, playlistSync, settings] { return new JellyfinSettingsPageWidget(client, playlistSync, settings); });
 }
 } // namespace Fooyin::Jellyfin
 
