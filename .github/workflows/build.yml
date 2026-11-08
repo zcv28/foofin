@@ -15,13 +15,16 @@ on:
 permissions:
   contents: write
 
+env:
+  FOOYIN_RELEASE: ${{ inputs.fooyin-release || 'nightly' }}
+  GH_TOKEN: ${{ github.token }}
+
 jobs:
   windows:
     name: Windows x64
     runs-on: windows-latest
-    env:
-      FOOYIN_RELEASE: ${{ inputs.fooyin-release || 'nightly' }}
-      GH_TOKEN: ${{ github.token }}
+    outputs:
+      fooyin-version: ${{ steps.sdk.outputs.fooyin-version }}
 
     steps:
       - uses: actions/checkout@v4
@@ -43,6 +46,8 @@ jobs:
 
           Write-Host "fooyin $($manifest.fooyin_version) ($($manifest.fooyin_commit)), Qt $($manifest.qt_version), $($manifest.plugin_iid)"
           "prefix=$prefix" >> $env:GITHUB_OUTPUT
+          "fooyin-version=$($manifest.fooyin_version)" >> $env:GITHUB_OUTPUT
+          "qt-version=$($manifest.qt_version)" >> $env:GITHUB_OUTPUT
 
           # The SDK only has fooyin's own DLLs. Running anything that links them also needs their
           # dependencies (TagLib, FFmpeg, ICU, ...), so fetch the matching portable build as well.
@@ -53,8 +58,6 @@ jobs:
           $runtime = (Get-ChildItem portable -Directory | Select-Object -First 1).FullName
           if (-not (Test-Path "$runtime/fooyin_core.dll")) { throw 'Portable build has no fooyin_core.dll' }
           "runtime=$runtime" >> $env:GITHUB_OUTPUT
-          "fooyin-version=$($manifest.fooyin_version)" >> $env:GITHUB_OUTPUT
-          "qt-version=$($manifest.qt_version)" >> $env:GITHUB_OUTPUT
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -108,18 +111,128 @@ jobs:
             [System.Runtime.InteropServices.NativeLibrary]::Free($handle)
           }
 
-      - name: Upload plugin
+      - name: Package
+        run: cmake --build build --target package_plugin
+
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: foofin-windows-x64-fooyin-${{ steps.sdk.outputs.fooyin-version }}
-          path: build/fyplugin_foofin.dll
+          path: |
+            build/fyplugin_foofin.dll
+            build/foofin-windows-x64.fyplugin
           if-no-files-found: error
 
-      - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/')
+  linux:
+    name: Linux x64
+    # fooyin's Linux SDK is built on Ubuntu 24.04 (Qt 6.4), which keeps the plugin loadable on
+    # newer distributions too.
+    runs-on: ubuntu-24.04
+    outputs:
+      fooyin-version: ${{ steps.sdk.outputs.fooyin-version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download fooyin SDK and runtime
+        id: sdk
+        run: |
+          gh release download "$FOOYIN_RELEASE" --repo fooyin/fooyin \
+            --pattern 'fooyin-sdk-*-linux-x64-*.tar.xz' --dir sdk-download
+          mkdir sdk && tar -xJf sdk-download/*.tar.xz -C sdk
+          prefix="$(find "$PWD/sdk" -mindepth 1 -maxdepth 1 -type d | head -n1)"
+          version="$(sed -n 's/.*"fooyin_version" *: *"\([^"]*\)".*/\1/p' "$prefix/sdk-manifest.json")"
+          cat "$prefix/sdk-manifest.json"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "fooyin-version=$version" >> "$GITHUB_OUTPUT"
+
+          # The matching fooyin package provides the runtime dependencies for the tests.
+          gh release download "$FOOYIN_RELEASE" --repo fooyin/fooyin \
+            --pattern "fooyin_${version}-noble_amd64.deb" --dir runtime
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build g++ \
+            qt6-base-dev libgl-dev libvulkan-dev libxkbcommon-dev ./runtime/*.deb
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DFOOFIN_BUILD_TESTS=ON \
+            -DCMAKE_PREFIX_PATH="${{ steps.sdk.outputs.prefix }}"
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        timeout-minutes: 10
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          export LD_LIBRARY_PATH="${{ steps.sdk.outputs.prefix }}/lib/fooyin"
+          ctest --test-dir build --output-on-failure --timeout 120
+
+      - name: Check the plugin loads
+        run: |
+          # Fails if the plugin references a fooyin/Qt symbol that this fooyin build doesn't export.
+          export LD_LIBRARY_PATH="${{ steps.sdk.outputs.prefix }}/lib/fooyin"
+          report="$(ldd -r build/fyplugin_foofin.so 2>&1)"
+          echo "$report"
+          if echo "$report" | grep -E "undefined symbol|not found"; then exit 1; fi
+
+      - name: Package
+        run: cmake --build build --target package_plugin
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: foofin-linux-x64-fooyin-${{ steps.sdk.outputs.fooyin-version }}
+          path: |
+            build/fyplugin_foofin.so
+            build/foofin-linux-x64.fyplugin
+          if-no-files-found: error
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble packages
+        id: assemble
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          mkdir -p dist combined
+
+          # One package for every platform: fooyin's installer extracts only the matching
+          # "<os>-<arch>" directory.
+          for bundle in artifacts/*/foofin-*.fyplugin; do
+            (cd combined && cmake -E tar xf "$GITHUB_WORKSPACE/$bundle")
+            platform="$(basename "$bundle" .fyplugin)"
+            cp "$bundle" "dist/${platform/foofin/foofin-$version}.fyplugin"
+          done
+          (cd combined && cmake -E tar cf "$GITHUB_WORKSPACE/dist/foofin-$version.fyplugin" --format=zip .)
+
+          cp artifacts/foofin-windows-*/fyplugin_foofin.dll "dist/fyplugin_foofin-$version-windows-x64.dll"
+          cp artifacts/foofin-linux-*/fyplugin_foofin.so "dist/fyplugin_foofin-$version-linux-x64.so"
+          ls -l dist combined combined/*
+
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/fyplugin_foofin.dll
+          files: dist/*
+          generate_release_notes: true
           body: |
-            Built against fooyin **${{ steps.sdk.outputs.fooyin-version }}** (Windows x64).
-            Install that fooyin build, then add the DLL with Settings → Plugins → Install.
+            Built against fooyin **${{ needs.windows.outputs.fooyin-version }}** (the nightly at release time).
+
+            **Install:** download `foofin-${{ steps.assemble.outputs.version }}.fyplugin` (Windows and Linux in one file),
+            then in fooyin open **Settings → Plugins → Install** and pick it. Restart fooyin.
+
+            The plugin only loads in the fooyin build it was compiled for. If you have a newer nightly,
+            rebuild from the Actions page (**Run workflow**) and use that run's artifacts.
