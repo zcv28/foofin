@@ -1,5 +1,7 @@
 name: Build
 
+# Every push and pull request is checked on Windows and Linux (build, tests, plugin loads).
+# Packages are only built for v* tags, which also publish a GitHub release.
 on:
   push:
     branches: [main]
@@ -112,9 +114,11 @@ jobs:
           }
 
       - name: Package
+        if: startsWith(github.ref, 'refs/tags/v')
         run: cmake --build build --target package_plugin
 
       - name: Upload
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: foofin-windows-x64-fooyin-${{ steps.sdk.outputs.fooyin-version }}
@@ -181,9 +185,11 @@ jobs:
           if echo "$report" | grep -E "undefined symbol|not found"; then exit 1; fi
 
       - name: Package
+        if: startsWith(github.ref, 'refs/tags/v')
         run: cmake --build build --target package_plugin
 
       - name: Upload
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: foofin-linux-x64-fooyin-${{ steps.sdk.outputs.fooyin-version }}
@@ -234,5 +240,6 @@ jobs:
             **Install:** download `foofin-${{ steps.assemble.outputs.version }}.fyplugin` (Windows and Linux in one file),
             then in fooyin open **Settings → Plugins → Install** and pick it. Restart fooyin.
 
-            The plugin only loads in the fooyin build it was compiled for. If you have a newer nightly,
-            rebuild from the Actions page (**Run workflow**) and use that run's artifacts.
+            fooyin has no stable plugin ABI yet, so this is built for that exact fooyin build (see Help → About
+            in fooyin). Later nightlies often keep working, but that isn't guaranteed: if fooyin shows the
+            plugin as incompatible or fails to load it, a new Foofin release is needed.

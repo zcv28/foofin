@@ -13,16 +13,15 @@ A [fooyin](https://github.com/fooyin/fooyin) plugin for playing music from a [Je
 ## Install
 
 Foofin needs a **nightly build of fooyin**, from the
-[fooyin nightly release](https://github.com/fooyin/fooyin/releases/tag/nightly); the stable release
-doesn't have the features it uses.
+[fooyin nightly release](https://github.com/fooyin/fooyin/releases/tag/nightly). See
+[Why a fooyin nightly?](#why-a-fooyin-nightly) below.
 
 1. Download `foofin-<version>.fyplugin` from this repository's [Releases](../../releases). It works
    on Windows and Linux.
 2. In fooyin, open **Settings → Plugins → Install**, pick the file, then restart fooyin.
 
-The plugin must match your fooyin build. If you update fooyin and the plugin stops loading, open
-this repository's [Actions](../../actions/workflows/build.yml) page, click **Run workflow** to
-build against the current nightly, and take the `.fyplugin` from that run's artifacts.
+Each release says which fooyin build it was made for. If a later fooyin nightly refuses to load
+the plugin, a new Foofin release is needed.
 
 ## Usage
 
@@ -35,6 +34,28 @@ Jellyfin playlists appear as fooyin playlists named "Jellyfin: …". They update
 every 30 minutes, or when you click **Sync Now** in the settings. They're locked because changes
 aren't sent back to Jellyfin. You can turn this off in the settings.
 
+## Why a fooyin nightly?
+
+The current stable release, fooyin 0.14.1 (October 2026), won't do, for three reasons:
+
+- **Seeking needs a newer fooyin.** Foofin streams files over HTTP with fooyin's own network
+  stream. HTTP range requests, which let that stream jump to any position, were added to fooyin on
+  2 November 2026, after 0.14.1. Without them a Jellyfin track can only be read from start to
+  finish. You couldn't seek, and some files (for example M4A files whose index sits at the end)
+  wouldn't play at all.
+- **fooyin has no stable plugin ABI yet.** A plugin is compiled machine code that calls straight
+  into fooyin's libraries, so it has to be built against the same headers as the fooyin it runs
+  in. Several classes Foofin uses (remote streams, audio inputs, tracks) have changed since 0.14.1,
+  so a build made for the nightly can't safely run in 0.14.1. For the same reason a Foofin build is
+  tied to the fooyin build it was made for.
+- **Only nightlies come with an SDK.** To compile a plugin you need fooyin's headers and libraries
+  for your platform. fooyin started publishing these SDK packages after 0.14.1, so they exist only
+  for nightly builds. That's what lets Foofin's CI build Windows and Linux packages without
+  compiling fooyin itself.
+
+Once a stable fooyin release ships with these changes and an SDK, Foofin can be built for it
+instead.
+
 ## Building
 
 You need the fooyin SDK for your fooyin build: a nightly release asset, or build fooyin with
@@ -45,7 +66,8 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=<fooyin sdk>
 cmake --build build --target package_plugin   # creates build/foofin-<os>-<arch>.fyplugin
 ```
 
-Pushing a `v*` tag builds both platforms and publishes a release with the packages.
+Every push is built and tested on Windows and Linux. Pushing a `v*` tag also builds the packages
+and publishes a release.
 
 ## Notes
 
