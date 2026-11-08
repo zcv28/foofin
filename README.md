@@ -1,6 +1,6 @@
 # Foofin
 
-A [fooyin](https://github.com/fooyin/fooyin) plugin for playing music from a [Jellyfin](https://jellyfin.org) server.
+A [fooyin](https://github.com/fooyin/fooyin) plugin for playing music from a [Jellyfin](https://jellyfin.org) server. Yes it's vibecoded.
 
 - Browse artists, albums, genres, playlists, favourites and recently played or added music, with
   cover art and search.
